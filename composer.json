@@ -1,0 +1,15 @@
+{
+  "name": "ideatic/html-parser",
+  "description": "description",
+  "minimum-stability": "stable",
+  "license": "proprietary",
+  "require": {
+    "php": ">=7.3",
+    "ext-ctype": "*"
+  },
+  "autoload": {
+    "classmap": [
+      "src/"
+    ]
+  }
+}
