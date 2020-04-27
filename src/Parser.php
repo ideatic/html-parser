@@ -336,6 +336,13 @@ class HTML_Parser
     ];
 
 
+    /**
+     * Decodifica las entidades HTML de la cadena indicada
+     */
+    public static function entityDecode(string $html):string
+    {
+        return html_entity_decode($html, ENT_QUOTES, 'UTF-8');
+    }
 
     /**
      * Codifica todas las entidades HTML de la cadena indicada
