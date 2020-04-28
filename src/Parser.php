@@ -339,7 +339,7 @@ class HTML_Parser
     /**
      * Decodifica las entidades HTML de la cadena indicada
      */
-    public static function entityDecode(string $html):string
+    public static function entityDecode(string $html): string
     {
         return html_entity_decode($html, ENT_QUOTES, 'UTF-8');
     }
@@ -347,7 +347,7 @@ class HTML_Parser
     /**
      * Codifica todas las entidades HTML de la cadena indicada
      */
-    public static function entityEncode(string $html):string
+    public static function entityEncode(string $html): string
     {
         return mb_convert_encoding($html, 'HTML-ENTITIES', 'UTF-8');
     }
@@ -610,8 +610,8 @@ class HTML_Parser_Element extends HTML_Parser_Node
      */
     public function appendSibling($node)
     {
-        $node = Arr::wrapArray($node);
-        $this->parent->children = Arr::insert($this->parent->children, array_search($this, $this->parent->children) + 1, $node);
+        $node = is_array($node) ? $node : [$node];
+        $this->parent->children = $this->_arrayInsert($this->parent->children, array_search($this, $this->parent->children) + 1, $node);
 
         foreach ($node as $n) {
             /** @var HTML_Parser_Node $n */
@@ -620,6 +620,11 @@ class HTML_Parser_Element extends HTML_Parser_Node
         }
 
         return $this;
+    }
+
+    private function _arrayInsert(array $array, $offset, array $insert)
+    {
+        return array_merge(array_slice($array, 0, $offset, false), $insert, array_slice($array, $offset));
     }
 
     public function walkParents(callable $callback)
@@ -666,9 +671,14 @@ class HTML_Parser_Element extends HTML_Parser_Node
 
     public function __debugInfo()
     {
+        $attrs = [];
+        foreach ($this->attributes as $key => $value) {
+            $attrs[] = "{$key}: {$value}";
+        }
+
         return [
             'tag'      => $this->tag,
-            'attrs'    => Arr::implode(array_column($this->attributes, 'value', 'name')),
+            'attrs'    => implode(', ', $attrs),
             'children' => count($this->children)
         ];
     }
