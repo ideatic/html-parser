@@ -672,8 +672,8 @@ class HTML_Parser_Element extends HTML_Parser_Node
     public function __debugInfo()
     {
         $attrs = [];
-        foreach ($this->attributes as $key => $value) {
-            $attrs[] = "{$key}: {$value}";
+        foreach ($this->attributes as $attr) {
+            $attrs[] = "{$attr->name}: {$attr->value}";
         }
 
         return [
