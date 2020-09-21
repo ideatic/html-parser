@@ -154,9 +154,9 @@ class HTML_Parser
         $message = "{$msg} at position {$this->_position} line {$line}";
 
         if ($this->strict) {
-            throw new Exception($message, implode('', $document->chars));
+            throw new Exception("{$message}: " . implode('', $document->chars));
         } else {
-            Log::warnings($message, htmlspecialchars(implode('', $document->chars)));
+            error_log("{$message}: " . implode('', $document->chars));
         }
     }
 
