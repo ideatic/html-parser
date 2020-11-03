@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
 
 class HTML_Parser
 {
@@ -11,7 +12,7 @@ class HTML_Parser
     /**
      * Analiza el documento HTML indicado, devolviendo su representación en un DOM
      */
-    public static function parse(string $html, $strict = false, $selfClosingElements = null): HTML_Parser_Document
+    public static function parse(string $html, bool $strict = false, array $selfClosingElements = null): HTML_Parser_Document
     {
         $parser = new HTML_Parser();
         $parser->strict = $strict;
@@ -249,10 +250,6 @@ class HTML_Parser
     }
 
     /**
-     * @param array               $html
-     * @param HTML_Parser_Element $host
-     *
-     * @return bool
      * @throws Exception
      */
     private function _readCData(HTML_Parser_Element $host): HTML_Parser_Text
@@ -309,7 +306,7 @@ class HTML_Parser
         );
     }
 
-    private function _getSlice(array $html, $offset, $length = null)
+    private function _getSlice(array $html, int $offset, int $length = null): string
     {
         return implode('', array_slice($html, $offset, $length));
     }
@@ -405,7 +402,7 @@ abstract class HTML_Parser_Node
     /** @var HTML_Parser_Document */
     public $document;
 
-    public abstract function render();
+    public abstract function render(): string;
 
     public function remove()
     {
@@ -418,6 +415,9 @@ abstract class HTML_Parser_Node
         }
     }
 
+    /**
+     * @param HTML_Parser_Node|HTML_Parser_Node[]
+     */
     public function replaceWith($node)
     {
         $position = array_search($this, $this->parent->children);
@@ -502,7 +502,8 @@ class HTML_Parser_Element extends HTML_Parser_Node
      */
     public $children = [];
 
-    public function render()
+    /** @inheritDoc */
+    public function render(): string
     {
         $html = "<{$this->tag}";
 
@@ -554,12 +555,7 @@ class HTML_Parser_Element extends HTML_Parser_Node
         return implode('', $childrenText);
     }
 
-    /**
-     * @param $name
-     *
-     * @return bool|HTML_Parser_Attribute
-     */
-    public function hasAttribute($name, $ignoreCase = true)
+    public function hasAttribute(string $name, bool $ignoreCase = true): ?HTML_Parser_Attribute
     {
         foreach ($this->attributes as $attr) {
             if ($ignoreCase ? strcasecmp($attr->name, $name) == 0 : $attr->name == $name) {
@@ -570,7 +566,7 @@ class HTML_Parser_Element extends HTML_Parser_Node
         return null;
     }
 
-    public function removeAttribute($name)
+    public function removeAttribute(string $name): bool
     {
         $attr = $this->hasAttribute($name);
         if ($attr) {
@@ -581,7 +577,7 @@ class HTML_Parser_Element extends HTML_Parser_Node
         }
     }
 
-    public function setAttribute($name, $value)
+    public function setAttribute(string $name, $value): HTML_Parser_Attribute
     {
         $alreadyExisting = $this->hasAttribute($name);
 
@@ -638,13 +634,9 @@ class HTML_Parser_Element extends HTML_Parser_Node
     }
 
     /**
-     * @param       $tag
-     * @param array $attributes
-     * @param       $content
-     *
-     * @return HTML_Parser_Element
+     * @param string|HTML_Parser_Node|HTML_Parser_Node[] $content
      */
-    public static function create($tag, array $attributes, $content = '')
+    public static function create(string $tag, array $attributes, $content = null): self
     {
         $element = new self();
         $element->tag = $tag;
@@ -656,7 +648,7 @@ class HTML_Parser_Element extends HTML_Parser_Node
             $element->attributes[] = $attr;
         }
 
-        if (!empty($content)) {
+        if (isset($content)) {
             if (is_string($content)) {
                 $element->children = HTML_Parser::parse($content)->children;
             } elseif (is_array($content)) {
@@ -686,6 +678,7 @@ class HTML_Parser_Element extends HTML_Parser_Node
 
 class HTML_Parser_Attribute
 {
+    /** @var string */
     public $name;
     public $value;
 
@@ -717,7 +710,7 @@ class HTML_Parser_Comment extends HTML_Parser_Node
      */
     public $offset;
 
-    public function render()
+    public function render(): string
     {
         return $this->value;
     }
@@ -750,7 +743,7 @@ class HTML_Parser_Text extends HTML_Parser_Node
         $this->_value = $content;
     }
 
-    public function render()
+    public function render(): string
     {
         if (!isset($this->_value)) {
             $this->_value = implode('', array_slice($this->document->chars, $this->offset, $this->length));
