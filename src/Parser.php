@@ -1,22 +1,22 @@
 <?php
+
 declare(strict_types=1);
 
 class HTML_Parser
 {
-    private $_position;
-    private $_length;
+    private int $_position;
+    private int $_length;
 
-    public $strict = false;
-    public $selfClosingElements = [];
+    protected function __construct(public bool $strict = false, public array $selfClosingElements = [])
+    {
+    }
 
     /**
      * Analiza el documento HTML indicado, devolviendo su representación en un DOM
      */
     public static function parse(string $html, bool $strict = false, array $selfClosingElements = null): HTML_Parser_Document
     {
-        $parser = new HTML_Parser();
-        $parser->strict = $strict;
-        $parser->selfClosingElements = $selfClosingElements ?? self::$defaultSelfClosingElements;
+        $parser = new HTML_Parser($strict, $selfClosingElements ?? self::$defaultSelfClosingElements);
         return $parser->_parse($html);
     }
 
@@ -107,7 +107,7 @@ class HTML_Parser
         return $nodes;
     }
 
-    private function _parseElement(HTML_Parser_Document $document)
+    private function _parseElement(HTML_Parser_Document $document): HTML_Parser_Element
     {
         $element = new HTML_Parser_Element();
         $element->document = $document;
@@ -115,12 +115,7 @@ class HTML_Parser
         // Leer nombre del elemento
         $element->offset = $this->_position;
         $this->_position++;
-        $element->tag = $this->_readUntil(
-            $document->chars,
-            function ($char) {
-                return ctype_space($char) || $char == '>' || $char == '/';
-            }
-        );
+        $element->tag = $this->_readUntil($document->chars, fn($char) => ctype_space($char) || $char == '>' || $char == '/');
 
         // Leer atributos
         $this->_readWhitespaces($document->chars);
@@ -149,7 +144,7 @@ class HTML_Parser
         return $element;
     }
 
-    private function _error(string $msg, HTML_Parser_Document $document)
+    private function _error(string $msg, HTML_Parser_Document $document): void
     {
         $line = array_count_values(array_slice($document->chars, 0, $this->_position))["\n"] ?? 0;
         $message = "{$msg} at position {$this->_position} line {$line}";
@@ -185,12 +180,7 @@ class HTML_Parser
                 $attr->name = $attr->enclosing . $attr->name . $attr->enclosing;
                 $attr->enclosing = '';
             } else {
-                $attr->name = $this->_readUntil(
-                    $document->chars,
-                    function ($char) {
-                        return $char == '=' || $char == '>' || $char == '/' || ctype_space($char);
-                    }
-                );
+                $attr->name = $this->_readUntil($document->chars, fn($char) => $char == '=' || $char == '>' || $char == '/' || ctype_space($char));
             }
 
             $this->_readWhitespaces($document->chars);
@@ -208,7 +198,7 @@ class HTML_Parser
         return $attrs;
     }
 
-    private function _readAttrValue(HTML_Parser_Document $document, HTML_Parser_Attribute $attr)
+    private function _readAttrValue(HTML_Parser_Document $document, HTML_Parser_Attribute $attr): string
     {
         // Los atributos pueden estar encerrados entre ", ' o sin comillas ni espacios
         if ($document->chars[$this->_position] == '"' || $document->chars[$this->_position] == "'") {
@@ -220,17 +210,12 @@ class HTML_Parser
             return $content;
         } else {
             $this->_readWhitespaces($document->chars);
-            return $this->_readUntil(
-                $document->chars,
-                function ($char) {
-                    return ctype_space($char);
-                }
-            );
+            return $this->_readUntil($document->chars, fn($char) => ctype_space($char));
         }
     }
 
 
-    private function _parseComment(array $html)
+    private function _parseComment(array $html): HTML_Parser_Comment
     {
         $comment = new HTML_Parser_Comment();
 
@@ -277,7 +262,7 @@ class HTML_Parser
         return $content;
     }
 
-    private function _readUntil(array $html, $stopFn, bool $ignoreContent = false)
+    private function _readUntil(array $html, string|callable $stopFn, bool $ignoreContent = false): string|null
     {
         $isString = is_string($stopFn);
 
@@ -295,15 +280,9 @@ class HTML_Parser
     }
 
 
-    private function _readWhitespaces(array $html, bool $ignore = true)
+    private function _readWhitespaces(array $html, bool $ignore = true): string|null
     {
-        return $this->_readUntil(
-            $html,
-            function ($char) {
-                return !ctype_space($char);
-            },
-            $ignore
-        );
+        return $this->_readUntil($html, fn($char) => !ctype_space($char), $ignore);
     }
 
     private function _getSlice(array $html, int $offset, int $length = null): string
@@ -311,7 +290,7 @@ class HTML_Parser
         return implode('', array_slice($html, $offset, $length));
     }
 
-    public static $defaultSelfClosingElements = [
+    public static array $defaultSelfClosingElements = [
         '!doctype',
         'area',
         'base',
@@ -354,15 +333,13 @@ trait HTML_Parser_ContainerNode
 {
     /**
      * Recorre todos los nodos hijos del actual, llamando para cada uno de ellos a la función indicada
-     *
-     * @param $callback
      */
-    public function walk($callback)
+    public function walk(callable $callback): int
     {
         return $this->_walkNodes($this->children, $callback);
     }
 
-    private function _walkNodes($nodes, $callback)
+    private function _walkNodes(array $nodes, callable $callback): int
     {
         $count = 0;
         foreach ($nodes as $node) {
@@ -397,14 +374,12 @@ trait HTML_Parser_ContainerNode
 
 abstract class HTML_Parser_Node
 {
-    /** @var HTML_Parser_Element|HTML_Parser_Document */
-    public $parent;
-    /** @var HTML_Parser_Document */
-    public $document;
+    public HTML_Parser_Element|HTML_Parser_Document|null $parent;
+    public HTML_Parser_Document|null $document;
 
     public abstract function render(): string;
 
-    public function remove()
+    public function remove(): void
     {
         $position = array_search($this, $this->parent->children);
         if ($position !== false) {
@@ -416,9 +391,9 @@ abstract class HTML_Parser_Node
     }
 
     /**
-     * @param HTML_Parser_Node|HTML_Parser_Node[]
+     * @param HTML_Parser_Node|HTML_Parser_Node[] $node
      */
-    public function replaceWith($node)
+    public function replaceWith(HTML_Parser_Node|array $node): void
     {
         $position = array_search($this, $this->parent->children);
         if ($position !== false) {
@@ -434,7 +409,7 @@ abstract class HTML_Parser_Node
         }
     }
 
-    public function nextSibling(): ?self
+    public function nextSibling(): HTML_Parser_Node|HTML_Parser_Comment|HTML_Parser_Element|HTML_Parser_Text|null
     {
         $position = array_search($this, $this->parent->children);
         if ($position !== false && count($this->parent->children) > $position + 1) {
@@ -443,10 +418,7 @@ abstract class HTML_Parser_Node
         return null;
     }
 
-    /**
-     * @return HTML_Parser_Comment|HTML_Parser_Element|HTML_Parser_Text|null
-     */
-    public function previousSibling()
+    public function previousSibling(): HTML_Parser_Node|HTML_Parser_Comment|HTML_Parser_Element|HTML_Parser_Text|null
     {
         $position = array_search($this, $this->parent->children);
         if ($position !== false && $position - 1 >= 0) {
@@ -466,7 +438,7 @@ class HTML_Parser_Document
     /** @var string[] */
     public $chars;
 
-    public function render()
+    public function render(): string
     {
         $nodesHTML = [];
         foreach ($this->children as $node) {
@@ -480,27 +452,20 @@ class HTML_Parser_Element extends HTML_Parser_Node
 {
     use HTML_Parser_ContainerNode;
 
-    /** @var string */
-    public $tag;
-
-    /** @var int */
-    public $offset;
-
-    /** @var int */
-    public $end;
-
-    /** @var bool */
-    public $autoClosed = false;
+    public string $tag;
+    public int $offset;
+    public int $end;
+    public bool|string $autoClosed = false;
 
     /**
-     * @var HTML_Parser_Attribute[]
+     * @var array<HTML_Parser_Attribute>
      */
-    public $attributes = [];
+    public array $attributes = [];
 
     /**
-     * @var HTML_Parser_Node[]|HTML_Parser_Element[]|HTML_Parser_Comment[]|HTML_Parser_Text[]
+     * @var array<HTML_Parser_Node|HTML_Parser_Element|HTML_Parser_Comment|HTML_Parser_Text>
      */
-    public $children = [];
+    public array $children = [];
 
     /** @inheritDoc */
     public function render(): string
@@ -533,7 +498,7 @@ class HTML_Parser_Element extends HTML_Parser_Node
         return $html;
     }
 
-    public function innerHTML()
+    public function innerHTML(): string
     {
         $childrenHTML = [];
         foreach ($this->children as $child) {
@@ -542,7 +507,7 @@ class HTML_Parser_Element extends HTML_Parser_Node
         return implode('', $childrenHTML);
     }
 
-    public function innerText()
+    public function innerText(): string
     {
         $childrenText = [];
         foreach ($this->children as $child) {
@@ -555,7 +520,7 @@ class HTML_Parser_Element extends HTML_Parser_Node
         return implode('', $childrenText);
     }
 
-    public function hasAttribute(string $name, bool $ignoreCase = true): ?HTML_Parser_Attribute
+    public function hasAttribute(string $name, bool $ignoreCase = true): HTML_Parser_Attribute|null
     {
         foreach ($this->attributes as $attr) {
             if ($ignoreCase ? strcasecmp($attr->name, $name) == 0 : $attr->name == $name) {
@@ -577,7 +542,7 @@ class HTML_Parser_Element extends HTML_Parser_Node
         }
     }
 
-    public function setAttribute(string $name, $value): HTML_Parser_Attribute
+    public function setAttribute(string $name, string $value): HTML_Parser_Attribute
     {
         $alreadyExisting = $this->hasAttribute($name);
 
@@ -593,7 +558,7 @@ class HTML_Parser_Element extends HTML_Parser_Node
         return $attr;
     }
 
-    public function getAttributeValue($name, $default = null)
+    public function getAttributeValue(string $name, string $default = null): string
     {
         $attr = $this->hasAttribute($name);
         return $attr->value ?? $default;
@@ -604,13 +569,12 @@ class HTML_Parser_Element extends HTML_Parser_Node
      *
      * @return $this
      */
-    public function appendSibling($node)
+    public function appendSibling(HTML_Parser_Node|array $node): self
     {
         $node = is_array($node) ? $node : [$node];
         $this->parent->children = $this->_arrayInsert($this->parent->children, array_search($this, $this->parent->children) + 1, $node);
 
         foreach ($node as $n) {
-            /** @var HTML_Parser_Node $n */
             $n->parent = $this->parent;
             $n->document = $this->document;
         }
@@ -618,12 +582,15 @@ class HTML_Parser_Element extends HTML_Parser_Node
         return $this;
     }
 
-    private function _arrayInsert(array $array, $offset, array $insert)
+    private function _arrayInsert(array $array, int $offset, array $insert): array
     {
         return array_merge(array_slice($array, 0, $offset, false), $insert, array_slice($array, $offset));
     }
 
-    public function walkParents(callable $callback)
+    /**
+     * @param callable(HTML_Parser_Node $node): void $callback
+     */
+    public function walkParents(callable $callback): void
     {
         $parent = $this->parent;
 
@@ -636,7 +603,7 @@ class HTML_Parser_Element extends HTML_Parser_Node
     /**
      * @param string|HTML_Parser_Node|HTML_Parser_Node[] $content
      */
-    public static function create(string $tag, array $attributes, $content = null): self
+    public static function create(string $tag, array $attributes, string|HTML_Parser_Node|array $content = null): self
     {
         $element = new self();
         $element->tag = $tag;
@@ -661,7 +628,7 @@ class HTML_Parser_Element extends HTML_Parser_Node
         return $element;
     }
 
-    public function __debugInfo()
+    public function __debugInfo(): array
     {
         $attrs = [];
         foreach ($this->attributes as $attr) {
@@ -678,17 +645,15 @@ class HTML_Parser_Element extends HTML_Parser_Node
 
 class HTML_Parser_Attribute
 {
-    /** @var string */
-    public $name;
-    public $value;
+    public string $name;
+    public string|null $value = null;
 
-    public $offset;
-    public $enclosing;
+    public int $offset;
+    public string $enclosing;
 
-    /** @var HTML_Parser_Element */
-    public $parent;
+    public HTML_Parser_Element|null $parent;
 
-    public function remove()
+    public function remove(): void
     {
         $position = array_search($this, $this->parent->attributes);
         if ($position !== false) {
@@ -701,21 +666,15 @@ class HTML_Parser_Attribute
 
 class HTML_Parser_Comment extends HTML_Parser_Node
 {
-    /**
-     * @var string
-     */
-    public $value;
-    /**
-     * @var int
-     */
-    public $offset;
+    public string $value;
+    public int $offset;
 
     public function render(): string
     {
         return $this->value;
     }
 
-    public function __debugInfo()
+    public function __debugInfo(): array
     {
         return [
             'value' => $this->value
@@ -725,20 +684,17 @@ class HTML_Parser_Comment extends HTML_Parser_Node
 
 class HTML_Parser_Text extends HTML_Parser_Node
 {
-    /** @var int */
-    public $offset;
+    public int $offset;
+    public int $length;
 
-    /** @var int */
-    public $length;
+    private string|null $_value;
 
-    private $_value;
-
-    public function __construct($content = null)
+    public function __construct(string $content = null)
     {
         $this->_value = $content;
     }
 
-    public function setContent(string $content)
+    public function setContent(string $content): void
     {
         $this->_value = $content;
     }
@@ -752,7 +708,7 @@ class HTML_Parser_Text extends HTML_Parser_Node
         return $this->_value;
     }
 
-    public function __debugInfo()
+    public function __debugInfo(): array
     {
         return [
             'offset' => $this->offset,
