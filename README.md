@@ -1,4 +1,4 @@
-```
+```php
   $dom = HTML_Parser::parse($html);
 
         foreach ($dom->children as $node) {
