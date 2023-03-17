@@ -40,7 +40,7 @@ class HTML_Parser
      */
     private function _parseChunk(HTML_Parser_Document $document, $parentNode): array
     {
-        /** @var HTML_Parser_Node[] $nodes */
+        /** @var array<HTML_Parser_Node> $nodes */
         $nodes = [];
 
         /** @var HTML_Parser_Text $currentTextNode */
@@ -356,7 +356,7 @@ trait HTML_Parser_ContainerNode
     /**
      * @param string $tag
      *
-     * @return HTML_Parser_Element[]
+     * @return array<HTML_Parser_Element>
      */
     public function findAll(string $tag)
     {
@@ -391,7 +391,7 @@ abstract class HTML_Parser_Node
     }
 
     /**
-     * @param HTML_Parser_Node|HTML_Parser_Node[] $node
+     * @param HTML_Parser_Node|array<HTML_Parser_Node> $node
      */
     public function replaceWith(HTML_Parser_Node|array $node): void
     {
@@ -432,11 +432,11 @@ class HTML_Parser_Document
 {
     use HTML_Parser_ContainerNode;
 
-    /** @var HTML_Parser_Element[]|HTML_Parser_Comment[]|HTML_Parser_Text[] */
-    public $children = [];
+    /** @var array<HTML_Parser_Element|HTML_Parser_Comment|HTML_Parser_Text> */
+    public array $children = [];
 
-    /** @var string[] */
-    public $chars;
+    /** @var array<string> */
+    public array $chars;
 
     public function render(): string
     {
@@ -558,14 +558,14 @@ class HTML_Parser_Element extends HTML_Parser_Node
         return $attr;
     }
 
-    public function getAttributeValue(string $name, string $default = null): string
+    public function getAttributeValue(string $name, string $default = null): string|null
     {
         $attr = $this->hasAttribute($name);
         return $attr->value ?? $default;
     }
 
     /**
-     * @param HTML_Parser_Node|HTML_Parser_Node[] $node
+     * @param HTML_Parser_Node|array<HTML_Parser_Node> $node
      *
      * @return $this
      */
@@ -601,7 +601,7 @@ class HTML_Parser_Element extends HTML_Parser_Node
     }
 
     /**
-     * @param string|HTML_Parser_Node|HTML_Parser_Node[] $content
+     * @param string|HTML_Parser_Node|array<HTML_Parser_Node> $content
      */
     public static function create(string $tag, array $attributes, string|HTML_Parser_Node|array $content = null): self
     {
