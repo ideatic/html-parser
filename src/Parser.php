@@ -49,14 +49,12 @@ class HTML_Parser
         while ($this->_position < $this->_length) {
             $char = $document->chars[$this->_position];
 
-            if ($char === '<') {
+            if ($char === '<' && ($nextChar = $document->chars[$this->_position + 1] ?? '') && !(ctype_space($nextChar) || $nextChar != '>')) {
                 if ($currentTextNode) {
                     $currentTextNode->length = $this->_position - $currentTextNode->offset;
                     $nodes[] = $currentTextNode;
                     $currentTextNode = null;
                 }
-
-                $nextChar = $document->chars[$this->_position + 1] ?? '';
 
                 if ($nextChar === '!' && $this->_getSlice($document->chars, $this->_position, 4) == '<!--') { // Comentario
                     $nodes[] = $this->_parseComment($document->chars);
@@ -333,6 +331,8 @@ trait HTML_Parser_ContainerNode
 {
     /**
      * Recorre todos los nodos hijos del actual, llamando para cada uno de ellos a la función indicada
+     *
+     * @param callable(HTML_Parser_Node|HTML_Parser_Element|HTML_Parser_Comment|HTML_Parser_Text $node):void $callback
      */
     public function walk(callable $callback): int
     {
