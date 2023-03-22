@@ -49,7 +49,7 @@ class HTML_Parser
         while ($this->_position < $this->_length) {
             $char = $document->chars[$this->_position];
 
-            if ($char === '<' && ($nextChar = $document->chars[$this->_position + 1] ?? '') && !(ctype_space($nextChar) || $nextChar != '>')) {
+            if ($char === '<' && ($nextChar = ($document->chars[$this->_position + 1] ?? '')) && !(ctype_space($nextChar) || $nextChar == '>')) {
                 if ($currentTextNode) {
                     $currentTextNode->length = $this->_position - $currentTextNode->offset;
                     $nodes[] = $currentTextNode;
