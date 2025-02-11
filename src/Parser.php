@@ -65,7 +65,7 @@ class HTML_Parser
             $parentNode->end = $this->_position;
 
             if (trim($closedTag) != trim($parentNode->tag)) {
-              $this->_error("Invalid closing tag, expected '{$parentNode->tag}' received '{$closedTag}'", $document);
+                $this->_error("Invalid closing tag, expected '" . trim($parentNode->tag) . "' received '" . trim($closedTag) . "'", $document);
             }
 
             $currentTextNode = null;
