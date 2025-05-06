@@ -14,7 +14,7 @@ class HTML_Parser
   /**
    * Analiza el documento HTML indicado, devolviendo su representación en un DOM
    */
-  public static function parse(string $html, bool $strict = false, array $selfClosingElements = null): HTML_Parser_Document
+  public static function parse(string $html, bool $strict = false, ?array $selfClosingElements = null): HTML_Parser_Document
   {
     $parser = new HTML_Parser($strict, $selfClosingElements ?? self::$defaultSelfClosingElements);
     return $parser->_parse($html);
@@ -40,7 +40,7 @@ class HTML_Parser
     /** @var array<HTML_Parser_Node> $nodes */
     $nodes = [];
 
-    /** @var HTML_Parser_Text $currentTextNode */
+    /** @var HTML_Parser_Text|null $currentTextNode */
     $currentTextNode = null;
 
     while ($this->_position < $this->_length) {
@@ -282,7 +282,7 @@ class HTML_Parser
     return $this->_readUntil($html, fn($char) => !ctype_space($char), $ignore);
   }
 
-  private function _getSlice(array $html, int $offset, int $length = null): string
+  private function _getSlice(array $html, int $offset, ?int $length = null): string
   {
     return implode('', array_slice($html, $offset, $length));
   }
@@ -558,7 +558,7 @@ class HTML_Parser_Element extends HTML_Parser_Node
     return $attr;
   }
 
-  public function getAttributeValue(string $name, string $default = null): string|null
+  public function getAttributeValue(string $name, ?string $default = null): string|null
   {
     $attr = $this->hasAttribute($name);
     return $attr->value ?? $default;
@@ -601,9 +601,9 @@ class HTML_Parser_Element extends HTML_Parser_Node
   }
 
   /**
-   * @param string|HTML_Parser_Node|array<HTML_Parser_Node> $content
+   * @param string|HTML_Parser_Node|array<HTML_Parser_Node>|null $content
    */
-  public static function create(string $tag, array $attributes, string|HTML_Parser_Node|array $content = null): self
+  public static function create(string $tag, array $attributes, string|HTML_Parser_Node|array|null $content = null): self
   {
     $element = new self();
     $element->tag = $tag;
@@ -689,7 +689,7 @@ class HTML_Parser_Text extends HTML_Parser_Node
 
   private string|null $_value;
 
-  public function __construct(string $content = null)
+  public function __construct(?string $content = null)
   {
     $this->_value = $content;
   }
