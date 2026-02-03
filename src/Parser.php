@@ -7,18 +7,29 @@ class HTML_Parser
     private int $_position;
     private int $_length;
 
-    protected function __construct(public bool $strict = false, public array $selfClosingElements = [], public bool $supportExpressions = false)
-    {
+    protected function __construct(
+        public bool $strict = false,
+        public array $selfClosingElements = [],
+        public bool $preserveAttributesWhitespace = true,
+        public bool $supportExpressions = false
+    ) {
     }
 
     /**
      * Analiza el documento HTML indicado, devolviendo su representación en un DOM
      *
      * @param bool $supportExpressions Si es true, el parser ignorará < dentro de comillas (útil para expresiones Angular/JS)
+     * @param bool $preserveAttributesWhitespace Si es true, preserva el whitespace original entre atributos y dentro de los tags.
+     *                                  Si es false, normaliza los espacios (un solo espacio entre atributos, sin saltos de línea en tags)
      */
-    public static function parse(string $html, bool $strict = false, ?array $selfClosingElements = null, bool $supportExpressions = false): HTML_Parser_Document
-    {
-        $parser = new HTML_Parser($strict, $selfClosingElements ?? self::$defaultSelfClosingElements, $supportExpressions);
+    public static function parse(
+        string $html,
+        bool $strict = false,
+        ?array $selfClosingElements = null,
+        bool $preserveAttributesWhitespace = true,
+        bool $supportExpressions = false
+    ): HTML_Parser_Document {
+        $parser = new HTML_Parser($strict, $selfClosingElements ?? self::$defaultSelfClosingElements, $preserveAttributesWhitespace, $supportExpressions);
         return $parser->_parse($html);
     }
 
@@ -47,6 +58,7 @@ class HTML_Parser
 
         // Rastrear si estamos dentro de comillas (para ignorar < en ese contexto)
         $insideQuote = null;
+        $foundClosingTag = false;
 
         while ($this->_position < $this->_length) {
             $char = $document->chars[$this->_position];
@@ -82,6 +94,7 @@ class HTML_Parser
                     $this->_position++;
                     if ($parentNode instanceof HTML_Parser_Element) {
                         $parentNode->end = $this->_position;
+                        $foundClosingTag = true;
 
                         if (trim($closedTag) != trim($parentNode->tag)) {
                             $this->_error("Invalid closing tag, expected '" . trim($parentNode->tag) . "' received '" . trim($closedTag) . "'", $document);
@@ -114,6 +127,11 @@ class HTML_Parser
             $nodes[] = $currentTextNode;
         }
 
+        // Si el elemento padre no tiene tag de cierre, marcarlo
+        if ($parentNode instanceof HTML_Parser_Element && !$foundClosingTag) {
+            $parentNode->hasClosingTag = false;
+        }
+
         // Asignar padres
         foreach ($nodes as $node) {
             $node->parent = $parentNode;
@@ -133,8 +151,7 @@ class HTML_Parser
         $this->_position++;
         $element->tag = $this->_readUntil($document->chars, fn($char) => ctype_space($char) || $char == '>' || $char == '/');
 
-        // Leer atributos
-        $this->_readWhitespaces($document->chars);
+        // Leer atributos (no consumir whitespace aquí, dejar que _parseAttrs lo capture)
         $element->attributes = $this->_parseAttrs($document, $element);
 
         // Leer final de apertura del elemento
@@ -184,11 +201,32 @@ class HTML_Parser
                 break;
             }
 
-            $this->_readWhitespaces($document->chars);
+            // Capturar whitespace antes del atributo (o antes del > si no hay más atributos)
+            $whitespace = $this->_readWhitespaces($document->chars, false) ?? '';
+
+            // Verificar si después del whitespace hay > o /> (fin del tag sin más atributos)
+            $nextChar = $document->chars[$this->_position] ?? '';
+            if ($nextChar === '>') {
+                // El whitespace es el closingWhitespace del elemento
+                $element->closingWhitespace = $this->preserveAttributesWhitespace ? $whitespace : '';
+                break;
+            }
+            if ($nextChar === '/' && ($document->chars[$this->_position + 1] ?? '') === '>') {
+                // El whitespace es el closingWhitespace del elemento (antes de />)
+                $element->closingWhitespace = $this->preserveAttributesWhitespace ? $whitespace : '';
+                $this->_position++;
+                break;
+            }
+
+            // Si no preservamos whitespace, normalizar a un solo espacio
+            if (!$this->preserveAttributesWhitespace && $whitespace !== '') {
+                $whitespace = ' ';
+            }
 
             $attr = new HTML_Parser_Attribute();
             $attr->offset = $this->_position;
             $attr->parent = $element;
+            $attr->prefixWhitespace = $whitespace;
 
             if ($currentChar == '"' || $currentChar == "'") {
                 // Nombres de atributo entre comillas, por ejemplo: <!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" 'http://www.w3.org/TR/html4/strict.dtd'>
@@ -199,6 +237,8 @@ class HTML_Parser
                 $attr->name = $this->_readUntil($document->chars, fn($char) => $char == '=' || $char == '>' || $char == '/' || ctype_space($char));
             }
 
+            // Consumir espacios solo si hay un signo =, de lo contrario el espacio pertenece al siguiente atributo
+            $tempPos = $this->_position;
             $this->_readWhitespaces($document->chars);
 
             if ($document->chars[$this->_position] == '=') {
@@ -206,6 +246,9 @@ class HTML_Parser
                 $this->_readWhitespaces($document->chars);
 
                 $attr->value = $this->_readAttrValue($document, $attr);
+            } else {
+                // No hay valor, restaurar posición antes de consumir whitespace
+                $this->_position = $tempPos;
             }
 
             $attrs[] = $attr;
@@ -225,8 +268,8 @@ class HTML_Parser
 
             return $content;
         } else {
-            $this->_readWhitespaces($document->chars);
-            return $this->_readUntil($document->chars, fn($char) => ctype_space($char));
+            $attr->enclosing = '';
+            return $this->_readUntil($document->chars, fn($char) => ctype_space($char) || $char === '>' || $char === '/');
         }
     }
 
@@ -475,6 +518,8 @@ class HTML_Parser_Element extends HTML_Parser_Node
     public int $offset;
     public int $end;
     public bool|string $autoClosed = false;
+    public bool $hasClosingTag = true; // Indica si el elemento tiene tag de cierre en el input
+    public string $closingWhitespace = ''; // Whitespace antes del > o /> de cierre del tag de apertura
 
     /**
      * @var array<HTML_Parser_Attribute>
@@ -492,26 +537,28 @@ class HTML_Parser_Element extends HTML_Parser_Node
         $html = "<{$this->tag}";
 
         if (!empty($this->attributes)) {
-            $attributesHTML = [];
             foreach ($this->attributes as $attribute) {
+                $html .= $attribute->prefixWhitespace;
                 if ($attribute->value === null) {
-                    $attributesHTML[] = $attribute->name;
+                    $html .= $attribute->name;
                 } else {
                     if ($attribute->enclosing && str_contains($attribute->value, $attribute->enclosing)) {
                         $attribute->value = htmlspecialchars($attribute->value);
                         $attribute->enclosing = '"';
                     }
-                    $attributesHTML[] = "{$attribute->name}={$attribute->enclosing}{$attribute->value}{$attribute->enclosing}";
+                    $html .= "{$attribute->name}={$attribute->enclosing}{$attribute->value}{$attribute->enclosing}";
                 }
             }
-            $html .= ' ' . implode(' ', $attributesHTML);
         }
 
+        $html .= $this->closingWhitespace;
 
         if ($this->autoClosed) {
             $html .= ($this->autoClosed === 'self' ? '>' : '/>');
-        } else {
+        } elseif ($this->hasClosingTag) {
             $html .= '>' . $this->innerHTML() . "</{$this->tag}>";
+        } else {
+            $html .= '>' . $this->innerHTML();
         }
 
         return $html;
@@ -669,6 +716,7 @@ class HTML_Parser_Attribute
 
     public int $offset;
     public string $enclosing;
+    public string $prefixWhitespace = ' '; // Whitespace before the attribute
 
     public HTML_Parser_Element|null $parent;
 
