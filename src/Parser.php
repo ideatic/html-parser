@@ -2,6 +2,9 @@
 
 declare(strict_types=1);
 
+/**
+ * Parser HTML simple que intenta mantener el formato original del documento
+ */
 class HTML_Parser
 {
     private int $_position;
@@ -79,7 +82,7 @@ class HTML_Parser
             if ($char === '<'
                 && $insideQuote === null
                 && ($nextChar = ($document->chars[$this->_position + 1] ?? ''))
-                && (ctype_alpha($nextChar) || $nextChar == '/' || $this->_getSlice($document->chars, $this->_position, 4) == '<!--')) {
+                && (ctype_alpha($nextChar) || $nextChar == '/' || ($nextChar === '!' &&$this->_getSlice($document->chars, $this->_position, 4) == '<!--'))) {
                 if ($currentTextNode) {
                     $currentTextNode->length = $this->_position - $currentTextNode->offset;
                     $nodes[] = $currentTextNode;
@@ -163,9 +166,9 @@ class HTML_Parser
 
         if ($document->chars[$this->_position - 2] == '/') { // Elemento autocerrado
             $element->autoClosed = true;
-        } elseif (in_array(strtolower($element->tag), $this->selfClosingElements)) {
+        } elseif (isset($this->selfClosingElements[strtolower($element->tag)])) {
             $element->autoClosed = 'self';
-        } elseif (in_array(strtolower($element->tag), ['script', 'style'])) { // Leer hasta el siguiente </tag>
+        } elseif (strtolower($element->tag) === 'script' || strtolower($element->tag) === 'style') { // Leer hasta el siguiente </tag>
             $cData = $this->_readCData($element);
             $cData->parent = $element;
             $cData->document = $document;
@@ -323,16 +326,16 @@ class HTML_Parser
 
     private function _readUntil(array $html, string|callable $stopFn, bool $ignoreContent = false): string|null
     {
-        $isString = is_string($stopFn);
-
         $start = $this->_position;
-        while ($this->_position < $this->_length) {
-            if ($isString
-                ? $html[$this->_position] == $stopFn
-                : call_user_func($stopFn, $html[$this->_position])) {
-                break;
+
+        if (is_string($stopFn)) {
+            while ($this->_position < $this->_length && $html[$this->_position] !== $stopFn) {
+                $this->_position++;
             }
-            $this->_position++;
+        } else {
+            while ($this->_position < $this->_length && !$stopFn($html[$this->_position])) {
+                $this->_position++;
+            }
         }
 
         return $ignoreContent ? null : $this->_getSlice($html, $start, $this->_position - $start);
@@ -350,24 +353,24 @@ class HTML_Parser
     }
 
     public static array $defaultSelfClosingElements = [
-        '!doctype',
-        'area',
-        'base',
-        'br',
-        'col',
-        'command',
-        'embed',
-        'hr',
-        'img',
-        'input',
-        'keygen',
-        'link',
-        'menuitem',
-        'meta',
-        'param',
-        'source',
-        'track',
-        'wbr'
+        '!doctype' => true,
+        'area' => true,
+        'base' => true,
+        'br' => true,
+        'col' => true,
+        'command' => true,
+        'embed' => true,
+        'hr' => true,
+        'img' => true,
+        'input' => true,
+        'keygen' => true,
+        'link' => true,
+        'menuitem' => true,
+        'meta' => true,
+        'param' => true,
+        'source' => true,
+        'track' => true,
+        'wbr' => true
     ];
 
 
@@ -404,7 +407,7 @@ trait HTML_Parser_ContainerNode
     {
         $count = 0;
         foreach ($nodes as $node) {
-            call_user_func($callback, $node);
+            $callback($node);
             $count++;
 
             if ($node instanceof HTML_Parser_Element) {
@@ -502,11 +505,7 @@ class HTML_Parser_Document
 
     public function render(): string
     {
-        $nodesHTML = [];
-        foreach ($this->children as $node) {
-            $nodesHTML[] = $node->render();
-        }
-        return implode('', $nodesHTML);
+        return implode('', array_map(fn($node) => $node->render(), $this->children));
     }
 }
 
@@ -566,11 +565,7 @@ class HTML_Parser_Element extends HTML_Parser_Node
 
     public function innerHTML(): string
     {
-        $childrenHTML = [];
-        foreach ($this->children as $child) {
-            $childrenHTML[] = $child->render();
-        }
-        return implode('', $childrenHTML);
+        return implode('', array_map(fn($child) => $child->render(), $this->children));
     }
 
     public function innerText(): string
@@ -603,9 +598,8 @@ class HTML_Parser_Element extends HTML_Parser_Node
         if ($attr) {
             $attr->remove();
             return true;
-        } else {
-            return false;
         }
+        return false;
     }
 
     public function setAttribute(string $name, string $value): HTML_Parser_Attribute
@@ -637,20 +631,17 @@ class HTML_Parser_Element extends HTML_Parser_Node
      */
     public function appendSibling(HTML_Parser_Node|array $node): self
     {
-        $node = is_array($node) ? $node : [$node];
-        $this->parent->children = $this->_arrayInsert($this->parent->children, array_search($this, $this->parent->children) + 1, $node);
+        $nodes = is_array($node) ? $node : [$node];
+        $position = array_search($this, $this->parent->children) + 1;
 
-        foreach ($node as $n) {
+        array_splice($this->parent->children, $position, 0, $nodes);
+
+        foreach ($nodes as $n) {
             $n->parent = $this->parent;
             $n->document = $this->document;
         }
 
         return $this;
-    }
-
-    private function _arrayInsert(array $array, int $offset, array $insert): array
-    {
-        return array_merge(array_slice($array, 0, $offset, false), $insert, array_slice($array, $offset));
     }
 
     /**
@@ -661,7 +652,7 @@ class HTML_Parser_Element extends HTML_Parser_Node
         $parent = $this->parent;
 
         while ($parent) {
-            call_user_func($callback, $parent);
+            $callback($parent);
             $parent = $parent->parent ?? null;
         }
     }
