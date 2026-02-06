@@ -14,14 +14,13 @@ class HTML_Parser
         public bool $strict = false,
         public array $selfClosingElements = [],
         public bool $preserveAttributesWhitespace = true,
-        public bool $supportExpressions = false
-    ) {
-    }
+        public bool $supportAngularExpressions = false
+    ) {}
 
     /**
      * Analiza el documento HTML indicado, devolviendo su representación en un DOM
      *
-     * @param bool $supportExpressions Si es true, el parser ignorará < dentro de comillas (útil para expresiones Angular/JS)
+     * @param bool $supportAngularExpressions Si es true, el parser ignorará < dentro de comillas (útil para expresiones Angular/JS)
      * @param bool $preserveAttributesWhitespace Si es true, preserva el whitespace original entre atributos y dentro de los tags.
      *                                  Si es false, normaliza los espacios (un solo espacio entre atributos, sin saltos de línea en tags)
      */
@@ -30,9 +29,9 @@ class HTML_Parser
         bool $strict = false,
         ?array $selfClosingElements = null,
         bool $preserveAttributesWhitespace = true,
-        bool $supportExpressions = false
+        bool $supportAngularExpressions = false
     ): HTML_Parser_Document {
-        $parser = new HTML_Parser($strict, $selfClosingElements ?? self::$defaultSelfClosingElements, $preserveAttributesWhitespace, $supportExpressions);
+        $parser = new HTML_Parser($strict, $selfClosingElements ?? self::$defaultSelfClosingElements, $preserveAttributesWhitespace, $supportAngularExpressions);
         return $parser->_parse($html);
     }
 
@@ -66,23 +65,10 @@ class HTML_Parser
         while ($this->_position < $this->_length) {
             $char = $document->chars[$this->_position];
 
-            // Rastrear entrada/salida de comillas en texto plano (ej: expresiones Angular/JS)
-            if ($this->supportExpressions) {
-                if ($insideQuote === null && ($char === '"' || $char === "'")) {
-                    $insideQuote = $char;
-                } elseif ($insideQuote !== null && $char === $insideQuote) {
-                    // Verificar que no sea una comilla escapada
-                    $prevChar = $document->chars[$this->_position - 1] ?? '';
-                    if ($prevChar !== '\\') {
-                        $insideQuote = null;
-                    }
-                }
-            }
-
             if ($char === '<'
                 && $insideQuote === null
                 && ($nextChar = ($document->chars[$this->_position + 1] ?? ''))
-                && (ctype_alpha($nextChar) || $nextChar == '/' || ($nextChar === '!' &&$this->_getSlice($document->chars, $this->_position, 4) == '<!--'))) {
+                && (ctype_alpha($nextChar) || $nextChar == '/' || ($nextChar === '!' && $this->_getSlice($document->chars, $this->_position, 4) == '<!--'))) {
                 if ($currentTextNode) {
                     $currentTextNode->length = $this->_position - $currentTextNode->offset;
                     $nodes[] = $currentTextNode;
@@ -116,6 +102,13 @@ class HTML_Parser
                 } else {
                     $nodes[] = $this->_parseElement($document);
                 }
+            } elseif ($char === '@' && $this->supportAngularExpressions && ($consumed = $this->_tryConsumeAngularExpression($document->chars)) > 0) {
+                if (!$currentTextNode) {
+                    $currentTextNode = new HTML_Parser_Text();
+                    $currentTextNode->offset = $this->_position;
+                }
+
+                $this->_position += $consumed;
             } else {
                 if (!$currentTextNode) {
                     $currentTextNode = new HTML_Parser_Text();
@@ -178,6 +171,94 @@ class HTML_Parser
         }
 
         return $element;
+    }
+
+
+    /**
+     * Intenta consumir una expresión Angular completa: @keyword (contenido) {
+     * Retorna el número de caracteres consumidos (0 si no es una expresión válida)
+     */
+    private function _tryConsumeAngularExpression(array $html): int
+    {
+        $startPos = $this->_position;
+        $pos = $startPos;
+
+        // Debe comenzar con @
+        if ($html[$pos] !== '@') {
+            return 0;
+        }
+        $pos++;
+
+        // Leer el keyword (cualquier texto alfanumérico)
+        $keyword = '';
+        while ($pos < $this->_length && ctype_alnum($html[$pos])) {
+            $keyword .= $html[$pos];
+            $pos++;
+        }
+
+        // Si no hay keyword, no es una expresión válida
+        if ($keyword === '') {
+            return 0;
+        }
+
+        // Saltar espacios en blanco opcionales
+        while ($pos < $this->_length && ctype_space($html[$pos])) {
+            $pos++;
+        }
+
+        // Verificar si hay paréntesis de apertura (opcional para @else, @default)
+        if ($pos < $this->_length && $html[$pos] === '(') {
+            $pos++; // Saltar el (
+
+            // Buscar el paréntesis de cierre, manejando anidación y cadenas de texto
+            $depth = 1;
+            $insideString = null;
+
+            while ($pos < $this->_length && $depth > 0) {
+                $char = $html[$pos];
+
+                // Manejar cadenas de texto
+                if ($insideString === null && ($char === '"' || $char === "'")) {
+                    $insideString = $char;
+                } elseif ($insideString !== null && $char === $insideString) {
+                    // Verificar que no sea una comilla escapada
+                    $prevChar = $html[$pos - 1] ?? '';
+                    if ($prevChar !== '\\') {
+                        $insideString = null;
+                    }
+                } elseif ($insideString === null) {
+                    // Solo procesar paréntesis si no estamos dentro de una cadena
+                    if ($char === '(') {
+                        $depth++;
+                    } elseif ($char === ')') {
+                        $depth--;
+                    }
+                }
+
+                $pos++;
+            }
+
+            // Si no encontramos el cierre, no es una expresión válida
+            if ($depth > 0) {
+                return 0;
+            }
+        }
+
+        // Saltar espacios en blanco opcionales después del paréntesis
+        while ($pos < $this->_length && ctype_space($html[$pos])) {
+            $pos++;
+        }
+
+        // Verificar que después venga una llave de apertura {
+        if ($pos >= $this->_length || $html[$pos] !== '{') {
+            return 0;
+        }
+
+        // Incluir la llave de apertura en lo consumido
+        $pos++;
+
+        // Retornar la cantidad de caracteres consumidos (sin incluir el @ inicial que ya está en _position)
+        return $pos - $startPos;
     }
 
     private function _error(string $msg, HTML_Parser_Document $document): void
@@ -370,7 +451,7 @@ class HTML_Parser
         'param' => true,
         'source' => true,
         'track' => true,
-        'wbr' => true
+        'wbr' => true,
     ];
 
 
@@ -693,9 +774,9 @@ class HTML_Parser_Element extends HTML_Parser_Node
         }
 
         return [
-            'tag'      => $this->tag,
-            'attrs'    => implode(', ', $attrs),
-            'children' => count($this->children)
+            'tag' => $this->tag,
+            'attrs' => implode(', ', $attrs),
+            'children' => count($this->children),
         ];
     }
 }
@@ -735,7 +816,7 @@ class HTML_Parser_Comment extends HTML_Parser_Node
     public function __debugInfo(): array
     {
         return [
-            'value' => $this->value
+            'value' => $this->value,
         ];
     }
 }
@@ -771,7 +852,7 @@ class HTML_Parser_Text extends HTML_Parser_Node
         return [
             'offset' => $this->offset,
             'length' => $this->length,
-            'value'  => $this->_value ?? ($this->document ? $this->render() : '#error#')
+            'value' => $this->_value ?? ($this->document ? $this->render() : '#error#'),
         ];
     }
 }
